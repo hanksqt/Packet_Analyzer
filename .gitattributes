@@ -1,0 +1,10 @@
+# Normalise line endings so the repo is identical on Linux, macOS and Windows.
+* text=auto eol=lf
+
+# Shell scripts must keep LF endings or bash will not run them.
+*.sh text eol=lf
+
+# Packet captures are binary. Without this, Windows' core.autocrlf would rewrite
+# 0x0A bytes inside frame payloads and silently corrupt the golden fixture.
+*.pcap  binary
+*.pcapng binary
