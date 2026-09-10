@@ -68,16 +68,19 @@ printf '\n'
 grep -q "Capture summary" <<<"$OUTPUT" || die "no summary was printed"
 grep -q "live:$IFACE" <<<"$OUTPUT"    || die "the summary did not name the live source"
 
-PACKETS=$(grep -oP '(?<=packets\s{9})\d+' <<<"$OUTPUT" | head -1)
-[[ -n "$PACKETS" && "$PACKETS" -gt 0 ]] || die "captured 0 packets"
+# The overview line looks like "  packets         134". Match the lowercase
+# form so the uppercase table headings do not interfere, and tolerate the
+# extraction failing rather than letting set -e kill the script silently.
+PACKETS=$(awk '/^[[:space:]]+packets[[:space:]]+[0-9]+$/ {print $2; exit}' <<<"$OUTPUT" || true)
+[[ -n "$PACKETS" && "$PACKETS" -gt 0 ]] || die "captured 0 packets (parsed: '${PACKETS:-none}')"
 ok "captured and decoded $PACKETS live frames"
 
-grep -qE '^\s+(TCP|UDP|ICMP|ARP)\s' <<<"$OUTPUT" \
+grep -qE '^[[:space:]]+(TCP|UDP|ICMP|ARP)[[:space:]]' <<<"$OUTPUT" \
     || die "no protocol was decoded from the live frames"
 ok "live frames decoded through the same pipeline as the pcap reader"
 
 # --- 2. promiscuous mode was released --------------------------------------
-if ip link show "$IFACE" | head -1 | grep -q PROMISC; then
+if ip link show "$IFACE" 2>/dev/null | head -1 | grep -q PROMISC; then
     die "$IFACE is still in promiscuous mode after the capture exited"
 fi
 ok "$IFACE was left out of promiscuous mode"
@@ -90,7 +93,9 @@ set -e
 [[ $ANY_STATUS -ne 0 ]] || die "--iface any should have been refused"
 grep -q "cooked-capture" <<<"$ANY_OUTPUT" \
     || die "the 'any' refusal did not explain why: $ANY_OUTPUT"
-grep -qv "Traceback" <<<"$ANY_OUTPUT" || die "the 'any' refusal printed a traceback"
+if grep -q "Traceback" <<<"$ANY_OUTPUT"; then
+    die "the 'any' refusal printed a traceback"
+fi
 ok "--iface any refused with an explanation, not a traceback"
 
 printf '\n'
