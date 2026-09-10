@@ -71,7 +71,13 @@ def test_non_linux_refusal_names_the_platform_and_the_alternative() -> None:
     assert "needs Linux" in message
     assert "AF_PACKET" in message
     assert "netsniff pcap" in message, "tell them what they can do instead"
-    assert "WSL" in message
+
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        assert "WSL" in message
+    elif _sys.platform == "darwin":
+        assert "BPF" in message, "macOS gets its own route, not a Windows one"
 
 
 @pytest.mark.skipif(

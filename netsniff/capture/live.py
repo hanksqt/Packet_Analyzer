@@ -76,11 +76,21 @@ def is_supported() -> bool:
 def _unsupported_reason() -> str:
     """A specific explanation of why live capture is unavailable here."""
     if not sys.platform.startswith("linux"):
+        if sys.platform == "win32":
+            route = "  Run it under WSL, or analyse a capture file instead:\n"
+        elif sys.platform == "darwin":
+            route = (
+                "  macOS captures through BPF devices (/dev/bpf*) rather than "
+                "AF_PACKET, which netsniff does not implement.\n"
+                "  Capture with tcpdump and analyse the file instead:\n"
+            )
+        else:
+            route = "  Capture with tcpdump on this host, then analyse the file:\n"
         return (
             f"live capture needs Linux, and this is {platform.system()}. "
             f"AF_PACKET is a Linux-only socket family, and netsniff deliberately "
             f"does not depend on libpcap or Npcap to work around that.\n"
-            f"  On Windows, run it under WSL, or analyse a capture file instead:\n"
+            f"{route}"
             f"    netsniff pcap yourfile.pcap"
         )
     return (

@@ -1,0 +1,169 @@
+name: CI
+
+# Everything here runs on a stock runner with no special privileges, because the
+# core is pure and the demo runs off the committed capture. That is the point of
+# the whole design: live capture needs root and Linux, so it was built last, on
+# top of a core that does not.
+#
+# What CI cannot cover is live capture itself - no hosted runner will grant a
+# test CAP_NET_RAW, and it should not. That checkpoint is verified by hand with
+# scripts/verify_live.sh, and the README says so rather than letting a green
+# badge imply more than it means.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          # The decoders are pure standard library and the pcap reader detects
+          # byte order from the file, so both should hold on any platform. These
+          # two runs are what proves it rather than assuming it.
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Confirm the core has no third-party runtime dependencies
+        shell: bash
+        run: |
+          # netsniff must import with nothing but the standard library. If a
+          # dependency ever creeps into the core, this is where it surfaces.
+          python - <<'PY'
+          import subprocess, sys, json
+          out = subprocess.run(
+              [sys.executable, "-m", "pip", "show", "netsniff"],
+              capture_output=True, text=True, check=True,
+          ).stdout
+          requires = [
+              line.split(":", 1)[1].strip()
+              for line in out.splitlines()
+              if line.startswith("Requires:")
+          ]
+          assert requires == [""] or requires == [], f"netsniff gained runtime deps: {requires}"
+          print("runtime dependencies: none")
+          PY
+
+      - name: Run the test suite
+        run: python -m pytest -v
+
+  lint:
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: ruff
+        run: python -m ruff check .
+      - name: mypy
+        run: python -m mypy netsniff
+
+  demo:
+    name: run against the committed capture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Confirm the fixture really is a classic pcap
+        run: |
+          # The pcapng trap: Wireshark saves pcapng by default and this reader
+          # parses classic pcap only. Checking the magic here means a bad
+          # fixture fails with a clear message instead of a confusing decode.
+          MAGIC=$(head -c 4 tests/fixtures/sample.pcap | od -An -tx1 | tr -d ' \n')
+          echo "magic bytes: $MAGIC"
+          case "$MAGIC" in
+            a1b2c3d4|d4c3b2a1|a1b23c4d|4d3cb2a1) echo "classic pcap, good" ;;
+            0a0d0d0a) echo "::error::the fixture is pcapng, not classic pcap"; exit 1 ;;
+            *) echo "::error::the fixture is not a pcap file at all"; exit 1 ;;
+          esac
+
+      - name: Analyse the capture
+        run: |
+          python -m netsniff pcap tests/fixtures/sample.pcap \
+            --json summary.json \
+            --csv flows.csv \
+            --scan-ports 4 --scan-unanswered 4
+
+      - name: Check the summary and publish it to the job summary
+        run: python scripts/ci_summary.py summary.json
+
+      - name: Check the CSV parses and reconciles
+        run: |
+          python - <<'PY'
+          import csv, json
+          with open("flows.csv", newline="", encoding="utf-8") as fh:
+              rows = list(csv.DictReader(fh))
+          summary = json.load(open("summary.json", encoding="utf-8"))
+
+          assert len(rows) == summary["flow_count"], "CSV row count disagrees with the JSON"
+          assert sum(int(r["packets"]) for r in rows) == summary["capture"]["packets"]
+          assert sum(int(r["bytes"]) for r in rows) == summary["capture"]["bytes"]
+          print(f"CSV: {len(rows)} conversations, totals reconcile with the JSON")
+          PY
+
+      - name: Confirm live capture refuses cleanly without privileges
+        run: |
+          # The runner is not root, so this must print an explanation and exit 1
+          # rather than raising PermissionError out of socket.socket.
+          set +e
+          OUTPUT=$(python -m netsniff live --iface lo --count 1 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+          test $STATUS -eq 1 || { echo "::error::expected exit 1, got $STATUS"; exit 1; }
+          if ! grep -q "CAP_NET_RAW" <<<"$OUTPUT"; then
+            echo "::error::the refusal gave no explanation"; exit 1
+          fi
+          if grep -q "Traceback" <<<"$OUTPUT"; then
+            echo "::error::the refusal printed a traceback"; exit 1
+          fi
+          echo "live capture refused with an actionable message"
+
+      - name: Upload the run output
+        uses: actions/upload-artifact@v4
+        with:
+          name: netsniff-summary
+          path: |
+            summary.json
+            flows.csv
