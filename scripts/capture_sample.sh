@@ -84,14 +84,23 @@ run_as_user "curl -s --max-time 10 -o /dev/null http://neverssl.com/"
 run_as_user "curl -s --max-time 10 -o /dev/null https://example.com/"
 run_as_user "curl -s --max-time 10 -o /dev/null -I https://api.github.com/"
 
-# ICMP echo request/reply.
-run_as_user "ping -c 3 -W 2 1.1.1.1 >/dev/null"
-run_as_user "ping -c 2 -W 2 8.8.8.8 >/dev/null"
+# ICMP echo request/reply. Run as root: unprivileged ping needs the
+# ping_group_range sysctl, which is not set on every distro.
+ping -c 3 -W 2 1.1.1.1 >/dev/null 2>&1 || true
+ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1 || true
 
-# A connection that gets refused, so there is a SYN with no SYN-ACK for the
-# detection heuristics to find.
-run_as_user "curl -s --max-time 3 -o /dev/null http://127.0.0.1:9/ " || true
-run_as_user "curl -s --max-time 3 -o /dev/null http://example.com:81/" || true
+# SYNs to closed ports, so the fixture contains connection attempts that never
+# get a SYN-ACK - which is exactly what detect.py's heuristics look for. These
+# go to THIS machine's own default gateway, a handful of packets to your own
+# equipment, so nothing here touches a third party's host. Loopback would be
+# useless: it never crosses the interface being captured.
+GW="$(ip -4 route show default | awk '{print $3; exit}')"
+if [[ -n "$GW" ]]; then
+    say "Sending a few SYNs to closed ports on the gateway ($GW) for the detector"
+    for port in 81 8081 8443 9001; do
+        run_as_user "curl -s --max-time 2 -o /dev/null http://$GW:$port/"
+    done
+fi
 
 sleep 3
 say "Stopping capture..."
@@ -130,4 +139,8 @@ printf '\n'
 if (( PKTS < 20 )); then
     printf '[!] Only %s packets captured - that is thin for a fixture.\n' "$PKTS" >&2
     printf '    Check that %s has connectivity, then re-run.\n' "$IFACE" >&2
+fi
+if (( SIZE > 512000 )); then
+    printf '[!] %s bytes is larger than intended for a committed fixture.\n' "$SIZE" >&2
+    printf '    Lower MAX_PACKETS at the top of this script and re-run.\n' >&2
 fi
