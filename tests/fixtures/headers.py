@@ -7,9 +7,11 @@ field boundaries are readable.
 The fixtures come from two places, and both are verified against an
 implementation that is not this one:
 
-**Captured frames** were lifted straight out of ``sample.pcap``, which tcpdump
-wrote. Their checksums were computed by real network stacks, so the fact that
-our checksum validation passes on them means something.
+**Captured frames** were lifted out of a real tcpdump capture taken by
+``scripts/capture_sample.sh``. Their checksums were computed by real network
+stacks, so the fact that our checksum validation passes on them means something.
+They are frozen here rather than read out of ``sample.pcap`` at test time, so
+regenerating that capture cannot silently change what these tests assert.
 
 **Hand-built frames** cover what the capture did not contain: VLAN and QinQ
 tags, ARP, IPv6, fragmentation, IPv4 options, and an 802.3 LLC frame. Each one
@@ -35,7 +37,7 @@ def _hex(text: str) -> bytes:
 # ------------------------------------------------------------------------
 
 #: BGP SYN, 10.0.0.12:39313 > 10.0.0.1:179, 20 bytes of TCP options
-#: sample.pcap packet 0, 74 bytes on the wire
+#: 74 bytes on the wire
 ETH_IPV4_TCP_SYN = _hex("""
     00155d2b eafc0015 5d019d50 080045c0
     003caed4 4000fe06 b91a0a00 000c0a00
@@ -45,7 +47,7 @@ ETH_IPV4_TCP_SYN = _hex("""
 """)
 
 #: SYN-ACK, 34.223.124.45:80 > 172.18.54.224:46554
-#: sample.pcap packet 14, 74 bytes on the wire
+#: 74 bytes on the wire
 ETH_IPV4_TCP_SYN_ACK = _hex("""
     00155d01 9d500015 5d2beafc 08004500
     003c0000 4000ef06 09bd22df 7c2dac12
@@ -55,7 +57,7 @@ ETH_IPV4_TCP_SYN_ACK = _hex("""
 """)
 
 #: PSH+ACK carrying 'GET / HTTP/1.1', 76 bytes of payload
-#: sample.pcap packet 16, 142 bytes on the wire
+#: 142 bytes on the wire
 ETH_IPV4_TCP_HTTP_GET = _hex("""
     00155d2b eafc0015 5d019d50 08004500
     00808aff 40004006 2d7aac12 36e022df
@@ -69,7 +71,7 @@ ETH_IPV4_TCP_HTTP_GET = _hex("""
 """)
 
 #: FIN+ACK closing the HTTP connection
-#: sample.pcap packet 22, 66 bytes on the wire
+#: 66 bytes on the wire
 ETH_IPV4_TCP_FIN_ACK = _hex("""
     00155d2b eafc0015 5d019d50 08004500
     00348b02 40004006 2dc3ac12 36e022df
@@ -79,7 +81,7 @@ ETH_IPV4_TCP_FIN_ACK = _hex("""
 """)
 
 #: real TLS ClientHello to api.github.com, 1574 byte payload
-#: sample.pcap packet 28, 1640 bytes on the wire
+#: 1640 bytes on the wire
 ETH_IPV4_TCP_TLS_CLIENT_HELLO = _hex("""
     00155d2b eafc0015 5d019d50 08004500 065ac996 40004006 8bbdac12 36e08c52
     70058aee 01bb251d 184fa4cb d78b8018 01f6e596 00000101 080a328a b44d0931
@@ -136,7 +138,7 @@ ETH_IPV4_TCP_TLS_CLIENT_HELLO = _hex("""
 """)
 
 #: ICMP echo request, 172.18.54.224 > 1.1.1.1, id 1 seq 1
-#: sample.pcap packet 46, 98 bytes on the wire
+#: 98 bytes on the wire
 ETH_IPV4_ICMP_ECHO_REQUEST = _hex("""
     00155d2b eafc0015 5d019d50 08004500
     005450e3 40004001 04d2ac12 36e00101
@@ -148,7 +150,7 @@ ETH_IPV4_ICMP_ECHO_REQUEST = _hex("""
 """)
 
 #: ICMP echo reply, 1.1.1.1 > 172.18.54.224, id 1 seq 1
-#: sample.pcap packet 47, 98 bytes on the wire
+#: 98 bytes on the wire
 ETH_IPV4_ICMP_ECHO_REPLY = _hex("""
     00155d01 9d500015 5d2beafc 08004500
     0054834d 00003501 1d680101 0101ac12
@@ -160,7 +162,7 @@ ETH_IPV4_ICMP_ECHO_REPLY = _hex("""
 """)
 
 #: TCP RST, 172.18.54.224:35566 > 140.82.112.5:443
-#: sample.pcap packet 49, 54 bytes on the wire
+#: 54 bytes on the wire
 ETH_IPV4_TCP_RST = _hex("""
     00155d2b eafc0015 5d019d50 08004500
     00280000 40004006 5b86ac12 36e08c52
@@ -420,6 +422,80 @@ ETH_ARP_PROBE = _hex("""
     00000000 00000000 00000000
 """)
 
+# ------------------------------------------------------------------------
+# More captured frames: DNS and ARP, from a later run of the capture script
+# ------------------------------------------------------------------------
+
+#: real DNS query, 172.18.54.224:37036 > 1.1.1.1:53, txid 44745, A? example.com with an EDNS0 OPT
+#: record
+#: 94 bytes on the wire
+ETH_IPV4_UDP_DNS_QUERY_REAL = _hex("""
+    00155d2b eafc0015 5d019d50 08004500
+    00500615 00004011 8f94ac12 36e00101
+    010190ac 0035003c e541aec9 01200001
+    00000000 00010765 78616d70 6c650363
+    6f6d0000 01000100 002904d0 00000000
+    000c000a 00088416 c9c9694c 2f28
+""")
+
+#: real DNS response, txid 44745, 2 answers: example.com A 172.66.147.243 and A 104.20.23.154
+#: 114 bytes on the wire
+ETH_IPV4_UDP_DNS_RESPONSE_REAL = _hex("""
+    00155d01 9d500015 5d2beafc 08004500
+    0064f08b 40003511 70090101 0101ac12
+    36e00035 90ac0050 1983aec9 81800001
+    00020000 00010765 78616d70 6c650363
+    6f6d0000 010001c0 0c000100 01000000
+    b10004ac 4293f3c0 0c000100 01000000
+    b1000468 14179a00 002904d0 00000000
+    0000
+""")
+
+#: real DNS query to 8.8.8.8, txid 20176, AAAA? www.example.com
+#: 98 bytes on the wire
+ETH_IPV4_UDP_DNS_AAAA_QUERY_REAL = _hex("""
+    00155d2b eafc0015 5d019d50 08004500
+    0054d58a 00004011 b20cac12 36e00808
+    0808d323 00350040 f3534ed0 01200001
+    00000000 00010377 77770765 78616d70
+    6c650363 6f6d0000 1c000100 002904d0
+    00000000 000c000a 0008c6b1 cff0b019
+    905b
+""")
+
+#: real NXDOMAIN response, txid 58000, A? nxdomain-test-netsniff.example, 0 answers and an SOA in
+#: the authority section
+#: 176 bytes on the wire
+ETH_IPV4_UDP_DNS_NXDOMAIN_REAL = _hex("""
+    00155d01 9d500015 5d2beafc 08004500
+    00a2b017 40003411 b13f0101 0101ac12
+    36e00035 da49008e 4d82e290 81a30001
+    00000001 0001166e 78646f6d 61696e2d
+    74657374 2d6e6574 736e6966 66076578
+    616d706c 65000001 00010000 06000100
+    01518000 4001610c 726f6f74 2d736572
+    76657273 036e6574 00056e73 746c640c
+    76657269 7369676e 2d677273 03636f6d
+    0078c3b1 f9000007 08000003 8400093a
+    80000151 80000029 04d00000 00000000
+""")
+
+#: real ARP request, who-has 172.18.48.1 tell 172.18.54.224 - 42 bytes, unpadded
+#: 42 bytes on the wire
+ETH_ARP_REQUEST_REAL = _hex("""
+    ffffffff ffff0015 5d019d50 08060001
+    08000604 00010015 5d019d50 ac1236e0
+    00000000 0000ac12 3001
+""")
+
+#: real ARP reply, 172.18.48.1 is-at 00:15:5d:2b:ea:fc
+#: 42 bytes on the wire
+ETH_ARP_REPLY_REAL = _hex("""
+    00155d01 9d500015 5d2beafc 08060001
+    08000604 00020015 5d2beafc ac123001
+    00155d01 9d50ac12 36e0
+""")
+
 
 ALL_FRAMES: dict[str, bytes] = {
     "ETH_IPV4_TCP_SYN": ETH_IPV4_TCP_SYN,
@@ -449,5 +525,11 @@ ALL_FRAMES: dict[str, bytes] = {
     "ETH_IPV6_ICMPV6_ECHO": ETH_IPV6_ICMPV6_ECHO,
     "ETH_ARP_GRATUITOUS": ETH_ARP_GRATUITOUS,
     "ETH_ARP_PROBE": ETH_ARP_PROBE,
+    "ETH_IPV4_UDP_DNS_QUERY_REAL": ETH_IPV4_UDP_DNS_QUERY_REAL,
+    "ETH_IPV4_UDP_DNS_RESPONSE_REAL": ETH_IPV4_UDP_DNS_RESPONSE_REAL,
+    "ETH_IPV4_UDP_DNS_AAAA_QUERY_REAL": ETH_IPV4_UDP_DNS_AAAA_QUERY_REAL,
+    "ETH_IPV4_UDP_DNS_NXDOMAIN_REAL": ETH_IPV4_UDP_DNS_NXDOMAIN_REAL,
+    "ETH_ARP_REQUEST_REAL": ETH_ARP_REQUEST_REAL,
+    "ETH_ARP_REPLY_REAL": ETH_ARP_REPLY_REAL,
 }
 """Every fixture by name, for tests that sweep across all of them."""
