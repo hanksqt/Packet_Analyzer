@@ -111,9 +111,12 @@ if [[ -n "$GW" ]]; then
     ip neigh flush dev "$IFACE" 2>/dev/null || true
     ping -c 2 -W 2 "$GW" >/dev/null 2>&1 || true
 
-    say "Sending a few SYNs to closed ports on the gateway ($GW) for the detector"
-    for port in 81 8081 8443 9001; do
-        run_as_user "curl -s --max-time 2 -o /dev/null http://$GW:$port/"
+    # Enough distinct ports to cross detect.py's default vertical-scan
+    # threshold, so the committed fixture demonstrates the detector without
+    # anyone having to lower a threshold to see it work.
+    say "Probing closed ports on the gateway ($GW) for the scan detector"
+    for port in 81 82 88 444 3000 3001 5000 8081 8082 8443 9001 9002 9090 9200; do
+        run_as_user "curl -s --max-time 1 --connect-timeout 1 -o /dev/null http://$GW:$port/"
     done
 fi
 

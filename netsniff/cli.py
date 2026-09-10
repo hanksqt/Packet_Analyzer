@@ -22,6 +22,12 @@ from pathlib import Path
 from typing import TextIO
 
 from netsniff import __version__
+from netsniff.analyze.detect import (
+    DEFAULT_THRESHOLDS,
+    Thresholds,
+    detect_all,
+    render_detections,
+)
 from netsniff.analyze.flows import FlowTable
 from netsniff.analyze.stats import StatsCollector
 from netsniff.capture.base import CaptureError, Frame
@@ -72,6 +78,52 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--csv", metavar="FILE", help="write conversations as CSV")
     common.add_argument(
         "--quiet", action="store_true", help="suppress the summary, for export-only runs"
+    )
+    common.add_argument(
+        "--no-detect",
+        dest="detect",
+        action="store_false",
+        help="skip the scan and unanswered-connection heuristics",
+    )
+    common.add_argument(
+        "--scan-ports",
+        type=int,
+        default=DEFAULT_THRESHOLDS.vertical_ports,
+        metavar="N",
+        help=(
+            f"distinct ports on one host before it counts as a vertical scan "
+            f"(default: {DEFAULT_THRESHOLDS.vertical_ports})"
+        ),
+    )
+    common.add_argument(
+        "--scan-hosts",
+        type=int,
+        default=DEFAULT_THRESHOLDS.horizontal_hosts,
+        metavar="N",
+        help=(
+            f"distinct hosts on one port before it counts as a sweep "
+            f"(default: {DEFAULT_THRESHOLDS.horizontal_hosts})"
+        ),
+    )
+    common.add_argument(
+        "--scan-unanswered",
+        type=int,
+        default=DEFAULT_THRESHOLDS.unanswered,
+        metavar="N",
+        help=(
+            f"unanswered SYNs from one source before it is reported "
+            f"(default: {DEFAULT_THRESHOLDS.unanswered})"
+        ),
+    )
+    common.add_argument(
+        "--scan-window",
+        type=float,
+        default=DEFAULT_THRESHOLDS.window_seconds,
+        metavar="SECONDS",
+        help=(
+            f"how close together probes must be to count "
+            f"(default: {DEFAULT_THRESHOLDS.window_seconds})"
+        ),
     )
 
     pcap = subcommands.add_parser(
@@ -216,9 +268,19 @@ def report(
     out = stream or sys.stdout
 
     detections_text = ""
-    detections_data = None
-    if hasattr(args, "detect_results"):
-        detections_text, detections_data = args.detect_results
+    detections_data: list[dict[str, object]] | None = None
+    if args.detect:
+        findings = detect_all(
+            flows,
+            Thresholds(
+                vertical_ports=args.scan_ports,
+                horizontal_hosts=args.scan_hosts,
+                unanswered=args.scan_unanswered,
+                window_seconds=args.scan_window,
+            ),
+        )
+        detections_text = render_detections(findings)
+        detections_data = [f.to_dict() for f in findings]
 
     if not args.quiet:
         console.print_summary(
