@@ -41,6 +41,7 @@ missing=()
 command -v tcpdump >/dev/null 2>&1 || missing+=(tcpdump)
 command -v curl    >/dev/null 2>&1 || missing+=(curl)
 command -v ping    >/dev/null 2>&1 || missing+=(iputils-ping)
+command -v dig     >/dev/null 2>&1 || missing+=(dnsutils)
 if (( ${#missing[@]} )); then
     say "Installing: ${missing[*]}"
     export DEBIAN_FRONTEND=noninteractive
@@ -71,10 +72,17 @@ say "Generating a traffic mix (DNS, HTTP, TLS, ICMP)..."
 
 run_as_user() { su -s /bin/bash -c "$1" "$REAL_USER" 2>/dev/null || true; }
 
-# DNS over UDP/53 - gives the app-hint decoder query names to find.
+# DNS over UDP/53.
+#
+# NOT getent or nslookup-with-default-resolver: recent WSL tunnels system DNS
+# over a virtual channel, so those queries never appear on eth0 at all. dig with
+# an explicit @server opens a plain UDP socket to that address, which does cross
+# the interface and does get captured.
 for host in example.com neverssl.com api.github.com cloudflare.com; do
-    run_as_user "getent ahostsv4 $host >/dev/null"
+    run_as_user "dig +time=2 +tries=1 @1.1.1.1 $host A >/dev/null"
 done
+run_as_user "dig +time=2 +tries=1 @8.8.8.8 www.example.com AAAA >/dev/null"
+run_as_user "dig +time=2 +tries=1 @1.1.1.1 nxdomain-test-netsniff.example A >/dev/null"
 
 # Plaintext HTTP over TCP/80 - method line and Host header for the HTTP hint.
 run_as_user "curl -s --max-time 10 -o /dev/null http://example.com/"
@@ -96,6 +104,13 @@ ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1 || true
 # useless: it never crosses the interface being captured.
 GW="$(ip -4 route show default | awk '{print $3; exit}')"
 if [[ -n "$GW" ]]; then
+    # Empty the neighbour cache so the next packet to the gateway has to ask for
+    # its MAC first. Without this there is no ARP in the capture at all, since
+    # the entry was already resolved long before tcpdump started.
+    say "Flushing the ARP cache to force a real ARP exchange"
+    ip neigh flush dev "$IFACE" 2>/dev/null || true
+    ping -c 2 -W 2 "$GW" >/dev/null 2>&1 || true
+
     say "Sending a few SYNs to closed ports on the gateway ($GW) for the detector"
     for port in 81 8081 8443 9001; do
         run_as_user "curl -s --max-time 2 -o /dev/null http://$GW:$port/"
