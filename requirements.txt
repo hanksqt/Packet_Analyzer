@@ -1,0 +1,8 @@
+# Development dependencies only.
+#
+# netsniff's runtime core has NO third-party dependencies - it is pure standard
+# library by design, so anyone can clone the repo and run it against a pcap with
+# nothing but Python installed. Everything below is for testing and linting.
+pytest>=7.4
+ruff>=0.6
+mypy>=1.11
