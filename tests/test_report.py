@@ -199,7 +199,14 @@ def test_print_summary_writes_to_the_given_stream(sample_pcap: Path) -> None:
 def test_packet_line_is_tcpdump_shaped() -> None:
     line = console.packet_line(packet(synth.tcp_frame("10.0.0.1", 1234, "10.0.0.2", 80)))
     assert "10.0.0.1:1234 > 10.0.0.2:80 TCP" in line
-    assert line.endswith("B")
+    assert "[ACK]" in line
+    assert "54B" in line
+    assert line.endswith("HTTP"), "port 80 gives a port-based hint at the end"
+
+
+def test_packet_line_omits_the_hint_when_there_is_none() -> None:
+    line = console.packet_line(packet(synth.tcp_frame("10.0.0.1", 1234, "10.0.0.2", 51999)))
+    assert line.endswith("B"), "no well-known port, so nothing is appended"
 
 
 def test_packet_line_with_index_and_relative_time() -> None:

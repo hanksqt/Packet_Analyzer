@@ -352,8 +352,8 @@ def packet_line(
     prefix = f"{index:>6} " if index is not None else ""
     line = f"{prefix}{stamp} {packet}  {packet.length}B"
 
-    if (label := getattr(packet.app, "label", None)) is not None:
-        line += f"  {label}"
+    if packet.app is not None:
+        line += f"  {packet.app.key}"
     if packet.errors:
         line += f"  [{packet.errors[0]}]"
     return line

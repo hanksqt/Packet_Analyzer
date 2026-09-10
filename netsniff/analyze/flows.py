@@ -268,9 +268,8 @@ class FlowTable:
             else:
                 flow.tcp_flags_b_to_a |= packet.transport.flags
 
-        hint = getattr(packet.app, "label", None)
-        if hint and hint not in flow.app_hints:
-            flow.app_hints = (*flow.app_hints, hint)
+        if packet.app is not None and packet.app.key not in flow.app_hints:
+            flow.app_hints = (*flow.app_hints, packet.app.key)
 
         return flow
 

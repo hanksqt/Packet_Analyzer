@@ -149,8 +149,8 @@ class StatsCollector:
         elif isinstance(packet.transport, Icmp):
             self.icmp_type_packets[packet.transport.type_name] += 1
 
-        if (label := getattr(packet.app, "label", None)) is not None:
-            self.app_hint_packets[label] += 1
+        if packet.app is not None:
+            self.app_hint_packets[packet.app.key] += 1
 
     def extend(self, packets: Iterable[DecodedPacket]) -> None:
         for packet in packets:

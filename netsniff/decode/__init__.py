@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from netsniff.capture.base import Frame
+from netsniff.decode.apphint import AppHint, app_hint
 from netsniff.decode.arp import Arp, decode_arp
 from netsniff.decode.common import DecodeError, Truncated, format_endpoint
 from netsniff.decode.ethernet import (
@@ -42,6 +43,7 @@ from netsniff.decode.udp import Udp, decode_udp
 from netsniff.decode.vlan import VlanTag
 
 __all__ = [
+    "AppHint",
     "DecodeError",
     "DecodedPacket",
     "NetworkLayer",
@@ -74,7 +76,7 @@ class DecodedPacket:
     payload: bytes = b""
     """Application-layer bytes: whatever followed the transport header."""
 
-    app: object | None = None
+    app: AppHint | None = None
     """Best-effort application-layer hint, or None. See ``decode.apphint``."""
 
     errors: tuple[str, ...] = field(default=())
@@ -256,11 +258,26 @@ def decode_frame(frame: Frame) -> DecodedPacket:
             except DecodeError as exc:
                 errors.append(f"{network.protocol_name}: {exc}")
 
+    # The application-layer hint runs last, on bytes the sender chose. app_hint
+    # never raises - see its docstring - so there is no try here on purpose:
+    # adding one would hide a genuine bug in our own dispatch behind the same
+    # silence that hostile payloads are meant to get.
+    hint = app_hint(payload, packet_src_port(transport), packet_dst_port(transport))
+
     return DecodedPacket(
         frame=frame,
         ethernet=eth,
         network=network,
         transport=transport,
         payload=payload,
+        app=hint,
         errors=tuple(errors),
     )
+
+
+def packet_src_port(transport: TransportLayer | None) -> int | None:
+    return transport.src_port if isinstance(transport, (Tcp, Udp)) else None
+
+
+def packet_dst_port(transport: TransportLayer | None) -> int | None:
+    return transport.dst_port if isinstance(transport, (Tcp, Udp)) else None
