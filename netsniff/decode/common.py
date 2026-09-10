@@ -27,6 +27,7 @@ __all__ = [
     "DecodeError",
     "Truncated",
     "checksum16",
+    "format_endpoint",
     "ip4_to_str",
     "ip6_to_str",
     "mac_to_str",
@@ -118,3 +119,17 @@ def verify_checksum(data: bytes) -> bool:
     is no need to zero the field and recompute.
     """
     return ones_complement_sum(data) == 0xFFFF
+
+
+def format_endpoint(address: str, port: int | None = None) -> str:
+    """Format an address, with a port, the way the rest of the world writes it.
+
+    IPv6 addresses are bracketed when a port is present, because
+    ``2001:db8::1:443`` is genuinely ambiguous - that last group could be part
+    of the address. ``[2001:db8::1]:443`` is not.
+    """
+    if port is None:
+        return address
+    if ":" in address:
+        return f"[{address}]:{port}"
+    return f"{address}:{port}"
