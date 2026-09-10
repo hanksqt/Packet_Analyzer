@@ -198,13 +198,13 @@ Three details of the implementation worth knowing:
 ## The test story
 
 ```
-408 tests, no network access, no privileges, ~1 second
+429 tests, no network access, no privileges, ~1 second
 ```
 
 The tests are what make this credible, so here is what they actually check.
 
 **Per-header unit tests against byte fixtures.** `tests/fixtures/headers.py`
-holds 33 complete frames as hex. Thirteen are real frames lifted out of a
+holds 33 complete frames as hex. Fourteen are real frames lifted out of a
 tcpdump capture; the rest were hand-built for what the capture did not contain —
 VLAN and QinQ tags, ARP, IPv6 extension chains, fragments, IPv4 options, 802.3
 LLC. **Every hand-built one was run through `tcpdump -e -vv` first**, which
@@ -253,6 +253,13 @@ The remainder is one manual check, run on Linux as root:
 
 ```bash
 sudo ./scripts/verify_live.sh eth0
+```
+
+```
+[OK] captured and decoded 40 live frames
+[OK] live frames decoded through the same pipeline as the pcap reader
+[OK] eth0 was left out of promiscuous mode
+[OK] --iface any refused with an explanation, not a traceback
 ```
 
 It confirms `AF_PACKET` really captures, that those frames decode through the
@@ -364,7 +371,7 @@ regenerating with it.
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 408 tests
+pytest          # 429 tests
 ruff check .
 mypy netsniff
 ```

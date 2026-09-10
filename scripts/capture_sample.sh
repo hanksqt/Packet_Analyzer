@@ -84,9 +84,36 @@ done
 run_as_user "dig +time=2 +tries=1 @8.8.8.8 www.example.com AAAA >/dev/null"
 run_as_user "dig +time=2 +tries=1 @1.1.1.1 nxdomain-test-netsniff.example A >/dev/null"
 
-# Plaintext HTTP over TCP/80 - method line and Host header for the HTTP hint.
-run_as_user "curl -s --max-time 10 -o /dev/null http://example.com/"
-run_as_user "curl -s --max-time 10 -o /dev/null http://neverssl.com/"
+# Plaintext HTTP over TCP/80 - the method line and Host header are what the
+# HTTP hint reads.
+#
+# curl is pointed at an explicit address with --resolve rather than left to the
+# system resolver. On WSL that resolver is tunnelled, so a name curl cannot
+# resolve produces no packets at all - and a capture that silently lost its HTTP
+# exchange looks fine until you notice the app-hint table is thin. The address
+# comes from dig, which we already know works here because those queries cross
+# the interface. Several hosts are tried, because any one of them can be having
+# a bad day.
+http_get() {
+    local host="$1" addr
+    addr=$(su -s /bin/bash -c "dig +short +time=2 +tries=1 @1.1.1.1 $host A" "$REAL_USER" \
+           2>/dev/null | grep -m1 -E '^[0-9]+[.]' || true)
+    [[ -n "$addr" ]] || return 1
+    su -s /bin/bash -c \
+        "curl -sS -o /dev/null --max-time 8 --connect-timeout 4 \
+         --resolve $host:80:$addr http://$host/" "$REAL_USER" 2>/dev/null
+}
+
+HTTP_OK=0
+for host in example.com neverssl.com www.wikipedia.org; do
+    if http_get "$host"; then
+        say "HTTP exchange with $host completed"
+        HTTP_OK=1
+        break
+    fi
+    say "HTTP to $host did not complete; trying another host"
+done
+(( HTTP_OK )) || printf '[!] no HTTP exchange completed\n' >&2
 
 # TLS over TCP/443 - ClientHello carries the SNI extension.
 run_as_user "curl -s --max-time 10 -o /dev/null https://example.com/"
@@ -152,6 +179,25 @@ say "Wrote $OUT"
 say "  magic   : $ORDER"
 say "  packets : $PKTS"
 say "  size    : $SIZE bytes"
+printf '\n'
+
+# --- 5. report what actually made it in ------------------------------------
+#
+# A capture is only as good as its contents, and the traffic mix above depends
+# on hosts that may not answer today. Reporting it here means a thin fixture is
+# obvious now rather than a puzzle later.
+say "Contents:"
+for filter in "udp port 53" "tcp port 80" "tcp port 443" "icmp" "arp"; do
+    count=$(tcpdump -r "$OUT" -n "$filter" 2>/dev/null | wc -l)
+    printf '      %-14s %4s packets\n' "$filter" "$count"
+done
+
+if tcpdump -r "$OUT" -A -n 'tcp port 80' 2>/dev/null | grep -q 'HTTP/1'; then
+    say "      HTTP request/response payload present"
+else
+    printf '[!] No HTTP payload in the capture - the app-hint demo will be weaker.\n' >&2
+    printf '    Re-run when the network is more cooperative.\n' >&2
+fi
 printf '\n'
 
 if (( PKTS < 20 )); then

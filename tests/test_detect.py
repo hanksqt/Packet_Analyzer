@@ -312,16 +312,29 @@ def test_detection_duration_is_derived() -> None:
 # ==========================================================================
 
 
-def test_real_capture_does_not_trip_the_defaults(sample_pcap: Path) -> None:
-    """Ordinary traffic plus a four-port probe stays under a threshold of ten.
+def test_real_capture_produces_no_spurious_findings(sample_pcap: Path) -> None:
+    """Whatever the capture contains, every default-threshold finding is earned.
 
-    That is the intended behaviour, not a gap: the defaults are set for real
-    networks, where a handful of failed connections is background noise.
+    Written as a property rather than as ``== []`` on purpose. The committed
+    capture's deliberate probe currently sits under the default of ten, so today
+    this list is empty - but ``scripts/capture_sample.sh`` can be re-run with a
+    wider probe, and a test that hardcoded emptiness would fail on a fixture
+    that is more useful, not less. What must hold either way is that nothing is
+    reported unless the evidence actually crosses the threshold.
     """
     table = FlowTable()
     for frame in read_pcap(sample_pcap):
         table.add(decode_frame(frame))
-    assert detect_all(table) == []
+
+    for finding in detect_all(table):
+        threshold = {
+            "vertical-scan": DEFAULT_THRESHOLDS.vertical_ports,
+            "horizontal-sweep": DEFAULT_THRESHOLDS.horizontal_hosts,
+            "unanswered-connections": DEFAULT_THRESHOLDS.unanswered,
+        }[finding.kind]
+        assert finding.count >= threshold, f"{finding.kind} reported below its threshold"
+        assert finding.duration <= DEFAULT_THRESHOLDS.window_seconds
+        assert finding.caveat, "every finding states what benign traffic looks the same"
 
 
 def test_real_capture_probe_is_found_when_thresholds_match_its_size(
